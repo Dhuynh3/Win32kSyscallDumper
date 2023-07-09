@@ -22,12 +22,47 @@ ULONG RvaToOffset(_In_ PIMAGE_NT_HEADERS NtHeaders, _In_ ULONG Rva)
 		if (SectionHeaders->VirtualAddress <= Rva && SectionHeaders->VirtualAddress + SectionHeaders->Misc.VirtualSize > Rva)
 		{
 			Result = Rva - SectionHeaders->VirtualAddress + SectionHeaders->PointerToRawData;
+
 			break;
 		}
 		SectionHeaders++;
 	}
 	return Result;
 }
+
+
+/**
+ * @brief This function calculates the address of data (Ex. Import Directory) in the PE image's file region (data stored on disk).
+ *
+ * Given a pointer to a buffer that contains a PE file, this function parses the PE header
+ * then searches for a section containing the data's RVA, and calculates the address of the data in the file region.
+ *
+ * @param BaseAddress The base address of the buffer that contains the PE file.
+ * @param NtHeaderPtr Pointer to the NT header of the PE file.
+ * @param Rva The relative virtual address, relative to the base address of a module.
+ * @return The address in the image's file region.
+ */
+PVOID TranslateAddress(_In_ PBYTE BaseAddress, _In_ PIMAGE_NT_HEADERS NtHeaderPtr, _In_ DWORD Rva) {
+	
+	// Find the section containing the RVA.
+	PIMAGE_SECTION_HEADER SectionHeader = IMAGE_FIRST_SECTION(NtHeaderPtr);
+	
+	for (int i = 0; i < NtHeaderPtr->FileHeader.NumberOfSections; i++, SectionHeader++) {
+		
+		// If the RVA is within this section.
+		if (Rva >= SectionHeader->VirtualAddress && Rva < SectionHeader->VirtualAddress + SectionHeader->Misc.VirtualSize) {
+
+			// (Rva - SectionHeader->VirtualAddress), this calculates the offset from the start of the section.
+			// SectionHeader->PointerToRawData is the offset from the start of the file to the start of the section in the file region.
+			
+			return BaseAddress + SectionHeader->PointerToRawData + (Rva - SectionHeader->VirtualAddress);
+		}
+
+	}
+
+	return NULL;
+}
+
 
 /**
 * Dump syscall IDs from Win32k.sys
@@ -81,7 +116,8 @@ int main() {
 	ULONG ExportDirSize = ImageDirectories[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
 	ULONG ExportOffset = RvaToOffset(ntHeader, ExportDirRva);
 
-	PIMAGE_EXPORT_DIRECTORY ExportDirectory = reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>(buffer + ExportOffset);
+	PIMAGE_EXPORT_DIRECTORY ExportDirectory = reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>(TranslateAddress(buffer, ntHeader, ExportDirRva));
+		//reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>(buffer + ExportOffset);
 	printf("Export number of function %i\n", ExportDirectory->NumberOfFunctions);
 	
 	PULONG AddressOfFunctions = (PULONG)(buffer + RvaToOffset(ntHeader, ExportDirectory->AddressOfFunctions));
